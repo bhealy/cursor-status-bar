@@ -83,9 +83,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Color the period spend based on thresholds
             let color: NSColor
             if data.totalSpendDollars >= 100 {
-                color = .systemRed
+                color = NSColor(red: 1.0, green: 0.55, blue: 0.35, alpha: 1.0) // bright orange
             } else if data.totalSpendDollars >= 50 {
-                color = .systemYellow
+                color = NSColor(red: 1.0, green: 0.8, blue: 0.3, alpha: 1.0) // bright yellow
             } else {
                 color = .labelColor
             }
@@ -112,6 +112,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Formatting Helpers
 
+    private let menuFont = NSFont.systemFont(ofSize: 13)
+    private let menuFontBold = NSFont.boldSystemFont(ofSize: 13)
+    private let menuFontSmall = NSFont.systemFont(ofSize: 12)
+    private let menuFontMono = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+    private let headerFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+
+    private func spendColor(_ dollars: Double) -> NSColor {
+        if dollars >= 50 { return NSColor(red: 0.75, green: 0.05, blue: 0.05, alpha: 1.0) }      // deep red
+        if dollars >= 10 { return NSColor(red: 0.70, green: 0.45, blue: 0.00, alpha: 1.0) }      // dark amber
+        if dollars > 0   { return NSColor(red: 0.00, green: 0.50, blue: 0.25, alpha: 1.0) }      // dark green
+        return .labelColor
+    }
+
     private func formatTokens(_ count: Int) -> String {
         if count >= 1_000_000 {
             return String(format: "%.1fM", Double(count) / 1_000_000.0)
@@ -122,7 +135,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func formatModelName(_ name: String) -> String {
-        // Shorten long model names for readability
         var s = name
         s = s.replacingOccurrences(of: "-high-thinking", with: " (thinking)")
         s = s.replacingOccurrences(of: "-preview", with: "")
@@ -137,55 +149,121 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return "\(startStr) – \(endStr)"
     }
 
+    /// Create a disabled menu item with an attributed title (preserves colors)
+    private func styledItem(_ attributed: NSAttributedString) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.attributedTitle = attributed
+        item.isEnabled = false
+        return item
+    }
+
+    /// Build an attributed string for a section header
+    private func headerString(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: headerFont,
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ])
+    }
+
+    /// Build an attributed string for a period summary line: "Today: $6.78  (9 req, 6.4M tokens)"
+    private func periodString(_ period: PeriodSummary) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+
+        // Label
+        result.append(NSAttributedString(string: "\(period.label):  ", attributes: [
+            .font: menuFontBold,
+            .foregroundColor: NSColor.labelColor
+        ]))
+
+        // Spend amount (colored, bold)
+        let spendStr = String(format: "$%.2f", period.spendDollars)
+        result.append(NSAttributedString(string: spendStr, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .bold),
+            .foregroundColor: spendColor(period.spendDollars)
+        ]))
+
+        // Details
+        let details = "   \(period.requests) req  ·  \(formatTokens(period.tokens)) tokens"
+        result.append(NSAttributedString(string: details, attributes: [
+            .font: menuFontSmall,
+            .foregroundColor: NSColor.labelColor
+        ]))
+
+        return result
+    }
+
+    /// Build an attributed string for a model line item
+    private func modelItemString(name: String, requests: Int, cost: Double) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+
+        let displayName = formatModelName(name)
+        result.append(NSAttributedString(string: "  \(displayName)  ", attributes: [
+            .font: menuFontSmall,
+            .foregroundColor: NSColor.labelColor
+        ]))
+
+        result.append(NSAttributedString(string: "\(requests) req", attributes: [
+            .font: menuFontSmall,
+            .foregroundColor: NSColor.labelColor
+        ]))
+
+        let costStr = String(format: "  $%.2f", cost)
+        result.append(NSAttributedString(string: costStr, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: spendColor(cost)
+        ]))
+
+        return result
+    }
+
     // MARK: - Menu Construction
 
     private func buildMenu(data: UsageDisplayData?, error: String?) {
         let menu = NSMenu()
 
         if let error = error {
-            let errorItem = NSMenuItem(title: "Error: \(error)", action: nil, keyEquivalent: "")
-            errorItem.isEnabled = false
-            menu.addItem(errorItem)
+            let errStr = NSAttributedString(string: "  \(error)", attributes: [
+                .font: menuFontSmall,
+                .foregroundColor: NSColor.systemRed
+            ])
+            menu.addItem(styledItem(errStr))
             menu.addItem(NSMenuItem.separator())
         }
 
         if let data = data {
             // Time period summaries
-            let periods = [data.today, data.last7Days, data.last30Days]
-            for period in periods {
-                let spendStr = String(format: "$%.2f", period.spendDollars)
-                let header = NSMenuItem(
-                    title: "\(period.label): \(spendStr)  (\(period.requests) req, \(formatTokens(period.tokens)) tokens)",
-                    action: nil,
-                    keyEquivalent: ""
-                )
-                header.isEnabled = false
-                menu.addItem(header)
-            }
+            menu.addItem(styledItem(headerString("SPENDING")))
+            menu.addItem(styledItem(periodString(data.today)))
+            menu.addItem(styledItem(periodString(data.last7Days)))
+            menu.addItem(styledItem(periodString(data.last30Days)))
 
             menu.addItem(NSMenuItem.separator())
 
             // Billing period section
             let periodLabel = billingPeriodLabel(data.billingPeriodStart)
-            let periodItem = NSMenuItem(
-                title: "Billing Period (\(periodLabel)): \(String(format: "$%.2f", data.totalSpendDollars))",
-                action: nil,
-                keyEquivalent: ""
-            )
-            periodItem.isEnabled = false
-            menu.addItem(periodItem)
+            let billingHeader = NSMutableAttributedString()
+            billingHeader.append(NSAttributedString(string: "BILLING PERIOD", attributes: [
+                .font: headerFont,
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]))
+            billingHeader.append(NSAttributedString(string: "  \(periodLabel)  ", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]))
+            let totalStr = String(format: "$%.2f", data.totalSpendDollars)
+            billingHeader.append(NSAttributedString(string: totalStr, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+                .foregroundColor: spendColor(data.totalSpendDollars)
+            ]))
+            menu.addItem(styledItem(billingHeader))
 
             if !data.lineItems.isEmpty {
                 for item in data.lineItems {
-                    let costStr = String(format: "$%.2f", item.costDollars)
-                    let displayName = formatModelName(item.modelName)
-                    let line = NSMenuItem(
-                        title: "  \(displayName): \(item.requestCount) req — \(costStr)",
-                        action: nil,
-                        keyEquivalent: ""
-                    )
-                    line.isEnabled = false
-                    menu.addItem(line)
+                    menu.addItem(styledItem(modelItemString(
+                        name: item.modelName,
+                        requests: item.requestCount,
+                        cost: item.costDollars
+                    )))
                 }
             }
 
