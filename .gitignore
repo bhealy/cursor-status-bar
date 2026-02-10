@@ -3,3 +3,8 @@ dist/
 *.zip
 .DS_Store
 .swiftpm/
+
+# Tauri
+tauri/src-tauri/target/
+tauri/node_modules/
+tauri/app-icon.png

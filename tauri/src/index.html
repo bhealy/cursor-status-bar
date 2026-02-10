@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cursor Status Bar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="error" class="error" style="display: none;"></div>
+
+    <div id="content" style="display: none;">
+      <!-- Time Period Section -->
+      <div class="section-header">
+        <span class="col-label">Time Period</span>
+        <span class="col-spend">Spend</span>
+      </div>
+
+      <div id="periods"></div>
+
+      <div class="separator"></div>
+
+      <!-- Billing Period by Model -->
+      <div class="section-header">Billing Period &mdash; By Model</div>
+      <div id="models"></div>
+
+      <div class="separator"></div>
+    </div>
+
+    <div id="loading" class="loading">Loading...</div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="action-btn" id="btn-refresh">Refresh Now</button>
+      <button class="action-btn" id="btn-dashboard">Open Cursor Dashboard</button>
+      <div class="separator"></div>
+      <button class="action-btn" id="btn-quit">Quit</button>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
