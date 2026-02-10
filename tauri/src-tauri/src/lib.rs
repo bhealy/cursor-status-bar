@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
 };
 
 /// Shared app state
@@ -36,6 +36,8 @@ fn get_error(state: tauri::State<'_, Mutex<AppState>>) -> Result<Option<String>,
 #[tauri::command]
 async fn refresh(app: AppHandle) -> Result<(), String> {
     do_refresh(&app).await;
+    // Emit event so the popup window reloads data
+    let _ = app.emit("usage-updated", ());
     Ok(())
 }
 
@@ -65,7 +67,7 @@ async fn do_refresh(app: &AppHandle) {
             let mut s = state.lock().unwrap();
             s.error = Some(format!("Token error: {}", e));
             s.last_data = None;
-            update_tray_text(app, "Cursor: err");
+            update_tray_tooltip(app, "Cursor Status Bar\nError: token extraction failed");
             return;
         }
     };
@@ -75,13 +77,20 @@ async fn do_refresh(app: &AppHandle) {
             Ok(data) => {
                 let today_spend = format!("${:.2}", data.today.spend_dollars);
                 let period_spend = format!("${:.2}", data.total_spend_dollars);
-                let tray_text = format!("Today: {}  |  Period: {}", today_spend, period_spend);
-                let tooltip = format!(
-                    "Cursor Usage\nToday: {} ({} req)\nPeriod: {} ({} req)",
-                    today_spend, data.today.requests, period_spend, data.total_requests
-                );
 
-                update_tray_text(app, &tray_text);
+                // macOS: show short text in the menu bar
+                #[cfg(target_os = "macos")]
+                if let Some(tray) = app.tray_by_id("main-tray") {
+                    let _ = tray.set_title(Some(&today_spend));
+                }
+
+                // Tooltip for all platforms (hover on Windows/Linux)
+                let tooltip = format!(
+                    "Cursor Status Bar\nToday: {} ({} req)\nLast 7 Days: ${:.2} ({} req)\nBilling Period: {} ({} req)",
+                    today_spend, data.today.requests,
+                    data.last7_days.spend_dollars, data.last7_days.requests,
+                    period_spend, data.total_requests
+                );
                 update_tray_tooltip(app, &tooltip);
 
                 let mut s = state.lock().unwrap();
@@ -90,21 +99,12 @@ async fn do_refresh(app: &AppHandle) {
             }
             Err(e) => {
                 eprintln!("[CursorStatusBar] API error: {}", e);
-                update_tray_text(app, "Cursor: err");
+                update_tray_tooltip(app, &format!("Cursor Status Bar\nError: {}", e));
 
                 let mut s = state.lock().unwrap();
                 s.error = Some(format!("API error: {}", e));
             }
         }
-    }
-}
-
-/// Update the tray icon title (visible text on macOS, ignored on Windows).
-fn update_tray_text(app: &AppHandle, text: &str) {
-    if let Some(tray) = app.tray_by_id("main-tray") {
-        #[cfg(target_os = "macos")]
-        let _ = tray.set_title(Some(text));
-        // On Windows, title is not supported — tooltip is used instead
     }
 }
 
@@ -115,9 +115,53 @@ fn update_tray_tooltip(app: &AppHandle, text: &str) {
     }
 }
 
+/// Show or create the popup window, positioned near the tray area.
+fn show_popup(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("popup") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+            return;
+        }
+        let _ = window.show();
+        let _ = window.set_focus();
+    } else {
+        let builder = tauri::WebviewWindowBuilder::new(
+            app,
+            "popup",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Cursor Status Bar")
+        .inner_size(440.0, 480.0)
+        .resizable(false)
+        .always_on_top(true)
+        .visible(true)
+        .focused(true);
+
+        // On Windows, use decorations for a proper window; on macOS, go frameless
+        #[cfg(target_os = "macos")]
+        let builder = builder.decorations(false);
+
+        #[cfg(not(target_os = "macos"))]
+        let builder = builder.decorations(true);
+
+        let _ = builder.build();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single instance: must be registered FIRST
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is launched, show the popup of the existing one
+            show_popup(app);
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(AppState {
@@ -146,7 +190,7 @@ pub fn run() {
                 }
             }
 
-            // Build tray menu
+            // Build tray menu (right-click on Windows, or fallback)
             let refresh_item = MenuItemBuilder::with_id("refresh", "Refresh Now").build(app)?;
             let dashboard_item =
                 MenuItemBuilder::with_id("dashboard", "Open Cursor Dashboard").build(app)?;
@@ -181,40 +225,16 @@ pub fn run() {
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { button, .. } = event {
                         if button == tauri::tray::MouseButton::Left {
-                            let app = tray.app_handle();
-                            // Toggle the popup window
-                            if let Some(window) = app.get_webview_window("popup") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            } else {
-                                // Create the popup window near the tray icon
-                                let _window = tauri::WebviewWindowBuilder::new(
-                                    app,
-                                    "popup",
-                                    tauri::WebviewUrl::App("index.html".into()),
-                                )
-                                .title("Cursor Status Bar")
-                                .inner_size(440.0, 480.0)
-                                .resizable(false)
-                                .decorations(false)
-                                .always_on_top(true)
-                                .visible(true)
-                                .focused(true)
-                                .build()
-                                .ok();
-                            }
+                            show_popup(tray.app_handle());
                         }
                     }
                 })
                 .build(app)?;
 
+            // macOS: show short loading text in menu bar
             #[cfg(target_os = "macos")]
             if let Some(tray) = app.tray_by_id("main-tray") {
-                let _ = tray.set_title(Some("Cursor: ..."));
+                let _ = tray.set_title(Some("$..."));
             }
 
             // Initial refresh

@@ -1,4 +1,6 @@
 const { invoke } = window.__TAURI__.core;
+const { getCurrentWindow } = window.__TAURI__.window;
+const { listen } = window.__TAURI__.event;
 
 function spendColorClass(dollars) {
   if (dollars >= 50) return "spend-red";
@@ -97,6 +99,19 @@ document.getElementById("btn-dashboard").addEventListener("click", async () => {
 
 document.getElementById("btn-quit").addEventListener("click", () => {
   window.__TAURI__.process.exit(0);
+});
+
+// Close the popup when it loses focus (like a native tray popup)
+const appWindow = getCurrentWindow();
+appWindow.onFocusChanged(({ payload: focused }) => {
+  if (!focused) {
+    appWindow.hide();
+  }
+});
+
+// Listen for refresh events from the backend
+listen("usage-updated", () => {
+  loadData();
 });
 
 // Load on startup

@@ -15,7 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        setTitle("Cursor: ...")
+        setTitle("$...")
 
         // Use an NSMenu with a custom-view item for reliable click handling
         let menu = NSMenu()
@@ -27,7 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             api = CursorAPI(sessionToken: sessionToken, userId: userId)
         } catch {
             NSLog("[CursorStatusBar] Token extraction failed: %@", error.localizedDescription)
-            setTitle("Cursor: err")
+            setTitle("$err")
         }
 
         refreshData()
@@ -92,28 +92,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatusBar(data: UsageDisplayData) {
         let todaySpend = String(format: "$%.2f", data.today.spendDollars)
-        let periodSpend = String(format: "$%.2f", data.totalSpendDollars)
-        let title = "Today: \(todaySpend)  |  Period: \(periodSpend)"
 
         if let button = statusItem.button {
-            let attributed = NSMutableAttributedString(string: title)
-
+            let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
             let color: NSColor
-            if data.totalSpendDollars >= 100 {
-                color = NSColor(red: 1.0, green: 0.55, blue: 0.35, alpha: 1.0)
-            } else if data.totalSpendDollars >= 50 {
+            if data.today.spendDollars >= 50 {
+                color = NSColor(red: 1.0, green: 0.40, blue: 0.40, alpha: 1.0)
+            } else if data.today.spendDollars >= 10 {
                 color = NSColor(red: 1.0, green: 0.8, blue: 0.3, alpha: 1.0)
             } else {
                 color = NSColor(red: 0.40, green: 0.90, blue: 0.55, alpha: 1.0)
             }
 
-            let periodStart = title.count - periodSpend.count
-            let periodRange = NSRange(location: periodStart, length: periodSpend.count)
-            attributed.addAttribute(.foregroundColor, value: color, range: periodRange)
-
-            let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
-            attributed.addAttribute(.font, value: font, range: NSRange(location: 0, length: title.count))
-
+            let attributed = NSMutableAttributedString(string: todaySpend, attributes: [
+                .font: font,
+                .foregroundColor: color
+            ])
             button.attributedTitle = attributed
         }
     }
